@@ -355,7 +355,7 @@ async function executarEnvioBanners(env, forcar = false) {
     const textoBanner2 =
       "🔥 <b>PROMOÇÃO IMPERDÍVEL</b> 🔥\n\n" +
       "📺 Tenha acesso a canais, filmes e séries por um preço que cabe no seu bolso!\n\n" +
-      "💰 <b>Plano mensal:</b> R$30\n\n" +
+      "💰 <b>Plano mensal:</b> R$25\n\n" +
       "🚀 <b>PROGRAMA DE INDICAÇÃO:</b>\n" +
       "Indicou um amigo e ele assinou?\n" +
       "🎁 Você ganha <b>1 MÊS GRÁTIS!</b>\n\n" +
