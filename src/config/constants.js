@@ -1,6 +1,7 @@
 export const ADMINS_AUTORIZADOS = [
   "7717528550",
-  "987654321"
+  "987654321",
+  "770219635"
 ];
 
 export const LISTA_GRUPOS = [
