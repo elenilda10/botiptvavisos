@@ -1,425 +1,132 @@
 import { enviarTelegram } from "../services/telegram.js";
-import { LISTA_GRUPOS } from "../config/constants.js";
+import { atualizarPainel } from "../services/panel.js";
+import { listarGrupos } from "../services/groups.js";
 
 export async function handleDisparoCallback(env, callback) {
   const data = callback.data;
   const chatId = callback.message.chat.id;
   const userId = callback.from.id.toString();
-
   const stateKey = `state_${userId}`;
-
-  // ---------------------------------------------------------
-  // CANCELAR
-  // ---------------------------------------------------------
 
   if (data === "disparo:cancelar") {
     await env.KV_BOT_BANNERS.delete(stateKey);
-
-    await enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendMessage",
-      {
-        chat_id: chatId,
-
-        text:
-          "❌ <b>Disparo cancelado.</b>\n\n" +
-          "Nenhuma mensagem foi enviada.",
-
-        parse_mode: "HTML",
-
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "🏠 Voltar ao Painel",
-                callback_data: "menu:inicio"
-              }
-            ]
-          ]
-        }
-      }
-    );
-
-    return;
+    return atualizarPainel(env, chatId, callback.message.message_id,
+      "❌ <b>Disparo cancelado.</b>\n\nNenhuma mensagem foi enviada.",
+      [[{ text: "🏠 Voltar ao Painel", callback_data: "menu:inicio" }]]);
   }
 
-  // ---------------------------------------------------------
-  // ADICIONAR BOTÕES
-  // ---------------------------------------------------------
+  const rawState = await env.KV_BOT_BANNERS.get(stateKey);
+  if (!rawState) return estadoExpirado(env, callback);
+  const state = JSON.parse(rawState);
+  state.panelMessageId ||= callback.message.message_id;
 
   if (data === "disparo:botoes") {
-    const rawState = await env.KV_BOT_BANNERS.get(stateKey);
-
-    if (!rawState) {
-      return estadoExpirado(env, chatId);
-    }
-
-    const state = JSON.parse(rawState);
-
     state.step = "WAITING_BUTTONS_INPUT";
-
-    await env.KV_BOT_BANNERS.put(
-      stateKey,
-      JSON.stringify(state),
-      {
-        expirationTtl: 3600
-      }
-    );
-
-    await enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendMessage",
-      {
-        chat_id: chatId,
-
-        text:
-          "🔘 <b>ADICIONAR BOTÕES</b>\n\n" +
-
-          "Envie os botões neste formato:\n\n" +
-
-          "<code>Comprar - https://site.com</code>\n\n" +
-
-          "Para colocar dois botões lado a lado:\n\n" +
-
-          "<code>Comprar - https://site.com | Suporte - https://t.me/suporte</code>\n\n" +
-
-          "Para criar outra linha, basta quebrar a linha.",
-
-        parse_mode: "HTML",
-
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "❌ Cancelar",
-                callback_data: "disparo:cancelar"
-              }
-            ]
-          ]
-        }
-      }
-    );
-
-    return;
+    await salvarEstado(env, stateKey, state);
+    return atualizarPainel(env, chatId, state.panelMessageId,
+      "🔘 <b>ADICIONAR BOTÕES</b>\n\nEnvie os botões neste formato:\n\n<code>Comprar - https://site.com</code>\n\nDois lado a lado:\n<code>Comprar - https://site.com | Suporte - https://t.me/suporte</code>\n\nOutra linha = quebra de linha.",
+      [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
   }
-
-  // ---------------------------------------------------------
-  // SEM BOTÕES
-  // ---------------------------------------------------------
 
   if (data === "disparo:sem_botoes") {
-    const rawState = await env.KV_BOT_BANNERS.get(stateKey);
-
-    if (!rawState) {
-      return estadoExpirado(env, chatId);
-    }
-
-    const state = JSON.parse(rawState);
-
     state.buttons = null;
     state.step = "WAITING_CONFIRMATION";
-
-    await env.KV_BOT_BANNERS.put(
-      stateKey,
-      JSON.stringify(state),
-      {
-        expirationTtl: 3600
-      }
-    );
-
-    return mostrarConfirmacao(
-      env,
-      chatId,
-      state
-    );
+    await salvarEstado(env, stateKey, state);
+    return mostrarConfirmacao(env, chatId, state);
   }
 
-  // ---------------------------------------------------------
-  // CONFIRMAR ENVIO
-  // ---------------------------------------------------------
-
   if (data === "disparo:confirmar") {
-    const rawState = await env.KV_BOT_BANNERS.get(stateKey);
-
-    if (!rawState) {
-      return estadoExpirado(env, chatId);
-    }
-
-    const state = JSON.parse(rawState);
-
-    // Evita clique duplicado
-    if (state.sending === true) {
-      return;
-    }
-
+    if (state.sending === true) return;
     state.sending = true;
+    await salvarEstado(env, stateKey, state);
 
-    await env.KV_BOT_BANNERS.put(
-      stateKey,
-      JSON.stringify(state),
-      {
-        expirationTtl: 3600
-      }
-    );
-
-    await enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendMessage",
-      {
-        chat_id: chatId,
-        text:
-          "🚀 <b>Iniciando disparo...</b>\n\n" +
-          `📡 Destinos: <b>${LISTA_GRUPOS.length}</b> grupos`,
-        parse_mode: "HTML"
-      }
-    );
+    const grupos = await listarGrupos(env);
+    await atualizarPainel(env, chatId, state.panelMessageId,
+      `🚀 <b>Iniciando disparo...</b>\n\n📡 Destinos: <b>${grupos.length}</b> grupos`, null);
 
     let sucessos = 0;
     let erros = 0;
+    const replyMarkup = state.buttons ? { inline_keyboard: state.buttons } : undefined;
 
-    const replyMarkup = state.buttons
-      ? {
-          inline_keyboard: state.buttons
-        }
-      : undefined;
-
-    for (const grupoId of LISTA_GRUPOS) {
+    for (const grupoId of grupos) {
       try {
-        await enviarConteudo(
-          env,
-          grupoId,
-          state,
-          replyMarkup
-        );
-
+        await enviarConteudo(env, grupoId, state, replyMarkup);
         sucessos++;
       } catch (error) {
         erros++;
-
-        console.error(
-          `[DISPARO] Erro no grupo ${grupoId}:`,
-          error
-        );
+        console.error(`[DISPARO] Erro no grupo ${grupoId}:`, error);
       }
-
       await sleep(1500);
     }
 
     await env.KV_BOT_BANNERS.delete(stateKey);
+    await salvarHistorico(env, { tipo: "manual", sucessos, erros, total: grupos.length, data: Date.now() });
 
-    await salvarHistorico(env, {
-      tipo: "manual",
-      sucessos,
-      erros,
-      total: LISTA_GRUPOS.length,
-      data: Date.now()
-    });
-
-    await enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendMessage",
-      {
-        chat_id: chatId,
-
-        text:
-          "✅ <b>DISPARO FINALIZADO</b>\n\n" +
-          `📤 Enviados: <b>${sucessos}</b>\n` +
-          `❌ Erros: <b>${erros}</b>\n` +
-          `👥 Total: <b>${LISTA_GRUPOS.length}</b>`,
-
-        parse_mode: "HTML",
-
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "📢 Novo Disparo",
-                callback_data: "menu:disparo"
-              }
-            ],
-            [
-              {
-                text: "🏠 Painel",
-                callback_data: "menu:inicio"
-              }
-            ]
-          ]
-        }
-      }
-    );
-
-    return;
+    return atualizarPainel(env, chatId, state.panelMessageId,
+      "✅ <b>DISPARO FINALIZADO</b>\n\n" +
+      `📤 Enviados: <b>${sucessos}</b>\n❌ Erros: <b>${erros}</b>\n👥 Total: <b>${grupos.length}</b>`,
+      [
+        [{ text: "📢 Novo Disparo", callback_data: "menu:disparo" }],
+        [{ text: "🏠 Painel", callback_data: "menu:inicio" }]
+      ]);
   }
 }
 
-// -------------------------------------------------------------
-// CONFIRMAÇÃO
-// -------------------------------------------------------------
-
-export async function mostrarConfirmacao(
-  env,
-  chatId,
-  state
-) {
-  await enviarTelegram(
-    env.TELEGRAM_TOKEN,
-    "sendMessage",
-    {
-      chat_id: chatId,
-
-      text:
-        "⚠️ <b>CONFIRMAR DISPARO</b>\n\n" +
-        `👥 Destinos: <b>${LISTA_GRUPOS.length} grupos</b>\n\n` +
-        "Deseja realmente enviar esta publicação?",
-
-      parse_mode: "HTML",
-
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "🚀 Confirmar e Enviar",
-              callback_data: "disparo:confirmar"
-            }
-          ],
-          [
-            {
-              text: "❌ Cancelar",
-              callback_data: "disparo:cancelar"
-            }
-          ]
-        ]
-      }
-    }
-  );
+export async function mostrarConfirmacao(env, chatId, state) {
+  const grupos = await listarGrupos(env);
+  return atualizarPainel(env, chatId, state.panelMessageId,
+    "⚠️ <b>CONFIRMAR DISPARO</b>\n\n" +
+    `👥 Destinos: <b>${grupos.length} grupos</b>\n\nDeseja realmente enviar esta publicação?`,
+    [
+      [{ text: "🚀 Confirmar e Enviar", callback_data: "disparo:confirmar" }],
+      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
+    ]);
 }
 
-// -------------------------------------------------------------
-// ENVIO DE CONTEÚDO
-// -------------------------------------------------------------
-
-async function enviarConteudo(
-  env,
-  chatId,
-  state,
-  replyMarkup
-) {
-  const payload = {
-    chat_id: chatId,
-    parse_mode: "HTML"
-  };
-
-  if (replyMarkup) {
-    payload.reply_markup = replyMarkup;
-  }
+async function enviarConteudo(env, chatId, state, replyMarkup) {
+  const payload = { chat_id: chatId, parse_mode: "HTML" };
+  if (replyMarkup) payload.reply_markup = replyMarkup;
 
   if (state.mediaType === "photo") {
     payload.photo = state.fileId;
-
-    if (state.caption) {
-      payload.caption = state.caption;
-    }
-
-    return enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendPhoto",
-      payload
-    );
+    if (state.caption) payload.caption = state.caption;
+    return enviarTelegram(env.TELEGRAM_TOKEN, "sendPhoto", payload);
   }
-
   if (state.mediaType === "video") {
     payload.video = state.fileId;
-
-    if (state.caption) {
-      payload.caption = state.caption;
-    }
-
-    return enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendVideo",
-      payload
-    );
+    if (state.caption) payload.caption = state.caption;
+    return enviarTelegram(env.TELEGRAM_TOKEN, "sendVideo", payload);
   }
-
   if (state.mediaType === "animation") {
     payload.animation = state.fileId;
-
-    if (state.caption) {
-      payload.caption = state.caption;
-    }
-
-    return enviarTelegram(
-      env.TELEGRAM_TOKEN,
-      "sendAnimation",
-      payload
-    );
+    if (state.caption) payload.caption = state.caption;
+    return enviarTelegram(env.TELEGRAM_TOKEN, "sendAnimation", payload);
   }
 
   payload.text = state.caption;
-
-  return enviarTelegram(
-    env.TELEGRAM_TOKEN,
-    "sendMessage",
-    payload
-  );
+  return enviarTelegram(env.TELEGRAM_TOKEN, "sendMessage", payload);
 }
 
-// -------------------------------------------------------------
-// HISTÓRICO SIMPLES
-// -------------------------------------------------------------
+async function salvarEstado(env, key, state) {
+  return env.KV_BOT_BANNERS.put(key, JSON.stringify(state), { expirationTtl: 3600 });
+}
 
 async function salvarHistorico(env, registro) {
   let historico = [];
-
-  const raw = await env.KV_BOT_BANNERS.get(
-    "historico_envios"
-  );
-
+  const raw = await env.KV_BOT_BANNERS.get("historico_envios");
   if (raw) {
-    try {
-      historico = JSON.parse(raw);
-    } catch {
-      historico = [];
-    }
+    try { historico = JSON.parse(raw); } catch { historico = []; }
   }
-
   historico.unshift(registro);
-
-  historico = historico.slice(0, 30);
-
-  await env.KV_BOT_BANNERS.put(
-    "historico_envios",
-    JSON.stringify(historico)
-  );
+  await env.KV_BOT_BANNERS.put("historico_envios", JSON.stringify(historico.slice(0, 30)));
 }
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function estadoExpirado(env, chatId) {
-  return enviarTelegram(
-    env.TELEGRAM_TOKEN,
-    "sendMessage",
-    {
-      chat_id: chatId,
-
-      text:
-        "⚠️ <b>Essa operação expirou.</b>\n\n" +
-        "Inicie um novo disparo.",
-
-      parse_mode: "HTML",
-
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "📢 Novo Disparo",
-              callback_data: "menu:disparo"
-            }
-          ]
-        ]
-      }
-    }
-  );
+async function estadoExpirado(env, callback) {
+  return atualizarPainel(env, callback.message.chat.id, callback.message.message_id,
+    "⚠️ <b>Essa operação expirou.</b>\n\nInicie um novo disparo.",
+    [[{ text: "📢 Novo Disparo", callback_data: "menu:disparo" }], [{ text: "🏠 Painel", callback_data: "menu:inicio" }]]);
 }
