@@ -75,7 +75,7 @@ const LISTA_GRUPOS = [
 const LINK_PADRAO = "https://t.me/iptvsupermidia";
 
 // -------------------------------------------------------------
-// FLUXO INTERATIVO DO COMANDO /send
+// FLUXO INTERATIVO DO COMANDO /send E COMANDO /15
 // -------------------------------------------------------------
 
 async function processarMensagem(env, message) {
@@ -93,6 +93,46 @@ async function processarMensagem(env, message) {
     await enviarTelegram(env.TELEGRAM_TOKEN, "sendMessage", {
       chat_id: chatId,
       text: "❌ <b>Operação cancelada!</b> O bot foi resetado.",
+      parse_mode: "HTML"
+    });
+    return;
+  }
+
+  // Comando /15 -> Disparo rápido de promoção para TODOS os grupos da LISTA_GRUPOS
+  if (texto === "/15") {
+    // Apenas administradores autorizados chegam até aqui (verificação acima)
+    const foto = "https://i.ibb.co/XfD93hhG/file-7.jpg";
+    const legenda =
+      "⚡ ENTRETENIMENTO POR APENAS R$1 POR DIA!\n\n" +
+      "📺 São 15 dias de acesso por apenas R$15.\n\n" +
+      "💰 R$1 por dia. Simples, econômico e flexível.\n\n" +
+      "👉 Chama no privado!";
+
+    // Envia para todos os grupos com intervalo anti-spam
+    let sucessos = 0;
+    for (const grupoId of LISTA_GRUPOS) {
+      try {
+        await enviarTelegram(env.TELEGRAM_TOKEN, "sendPhoto", {
+          chat_id: grupoId,
+          photo: foto,
+          caption: legenda,
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [[{ text: "👉 Chama no privado!", url: "https://t.me/Admmachine" }]]
+          }
+        });
+        sucessos++;
+      } catch (e) {
+        console.log(`[ERRO] Falha ao enviar /15 para ${grupoId}:`, e);
+      }
+      // Intervalo anti-spam entre envios
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Confirmação para o administrador que executou o comando
+    await enviarTelegram(env.TELEGRAM_TOKEN, "sendMessage", {
+      chat_id: chatId,
+      text: `✅ <b>Comando /15 executado.</b>\nEnviado para ${sucessos} grupos.`,
       parse_mode: "HTML"
     });
     return;
