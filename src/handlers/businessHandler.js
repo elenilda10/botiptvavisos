@@ -1,11 +1,21 @@
 import { enviarTelegram } from "../services/telegram.js";
 
-/**
- * Integração inicial com Telegram Business.
- * Modo de teste: responde somente quando a mensagem recebida pela conta
- * Business for exatamente /business_teste ou "teste business".
- * Assim, o fluxo normal do bot continua isolado.
- */
+const getToken = (env) =>
+  env.BOT_TOKEN || env.TELEGRAM_TOKEN || env.TELEGRAM_BOT_TOKEN;
+
+const menuBusiness = {
+  inline_keyboard: [
+    [
+      { text: "📺 Teste grátis", callback_data: "business_teste_gratis" },
+      { text: "💳 Planos", callback_data: "business_planos" }
+    ],
+    [
+      { text: "🔄 Renovação", callback_data: "business_renovacao" },
+      { text: "👨‍💻 Atendente", callback_data: "business_atendente" }
+    ]
+  ]
+};
+
 export async function handleBusinessConnection(env, connection) {
   console.log("[BUSINESS] conexão", {
     id: connection?.id,
@@ -17,7 +27,7 @@ export async function handleBusinessConnection(env, connection) {
 }
 
 export async function handleBusinessMessage(env, message) {
-  const token = env.BOT_TOKEN || env.TELEGRAM_TOKEN || env.TELEGRAM_BOT_TOKEN;
+  const token = getToken(env);
   if (!token) {
     console.error("[BUSINESS] Token do Telegram não configurado.");
     return;
@@ -36,18 +46,57 @@ export async function handleBusinessMessage(env, message) {
   });
 
   if (!connectionId || !chatId) return;
-
-  // Evita responder automaticamente a toda conversa durante o primeiro teste.
   if (texto !== "/business_teste" && texto !== "teste business") return;
 
   await enviarTelegram(token, "sendMessage", {
     business_connection_id: connectionId,
     chat_id: chatId,
-    text: "✅ Telegram Business conectado com sucesso!\n\nEsta resposta foi enviada pelo bot usando a conexão da sua conta Business.",
+    text: "🤖 Atendimento\n\nOlá! Telegram Business conectado com sucesso. Escolha uma opção para testar:",
+    reply_markup: menuBusiness,
     reply_parameters: message?.message_id
       ? { message_id: message.message_id }
       : undefined
   });
+}
+
+export async function handleBusinessCallback(env, callback) {
+  const data = callback?.data || "";
+  if (!data.startsWith("business_")) return false;
+
+  const token = getToken(env);
+  if (!token) {
+    console.error("[BUSINESS] Token do Telegram não configurado.");
+    return true;
+  }
+
+  const connectionId = callback?.message?.business_connection_id;
+  const chatId = callback?.message?.chat?.id;
+
+  const respostas = {
+    business_teste_gratis: "📺 Você selecionou: Teste grátis.\n\n✅ Callback Business funcionando!",
+    business_planos: "💳 Você selecionou: Planos.\n\n✅ Callback Business funcionando!",
+    business_renovacao: "🔄 Você selecionou: Renovação.\n\n✅ Callback Business funcionando!",
+    business_atendente: "👨‍💻 Você selecionou: Atendente.\n\n✅ Callback Business funcionando!"
+  };
+
+  try {
+    await enviarTelegram(token, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: "Opção recebida ✅"
+    });
+
+    if (connectionId && chatId) {
+      await enviarTelegram(token, "sendMessage", {
+        business_connection_id: connectionId,
+        chat_id: chatId,
+        text: respostas[data] || "✅ Opção recebida."
+      });
+    }
+  } catch (error) {
+    console.error("[BUSINESS] Erro no callback:", error);
+  }
+
+  return true;
 }
 
 export async function handleEditedBusinessMessage(env, message) {
