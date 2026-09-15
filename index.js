@@ -4,6 +4,7 @@ import { handleScheduled } from "./src/handlers/scheduledHandler.js";
 import {
   handleBusinessConnection,
   handleBusinessMessage,
+  handleBusinessCallback,
   handleEditedBusinessMessage,
   handleDeletedBusinessMessages
 } from "./src/handlers/businessHandler.js";
@@ -27,9 +28,12 @@ export default {
         }
 
         if (update.callback_query) {
-          ctx.waitUntil(
-            handleCallback(env, update.callback_query)
-          );
+          ctx.waitUntil((async () => {
+            const handled = await handleBusinessCallback(env, update.callback_query);
+            if (!handled) {
+              await handleCallback(env, update.callback_query);
+            }
+          })());
         }
 
         if (update.business_connection) {
