@@ -9,6 +9,14 @@ export async function handleDisparoCallback(env, callback) {
   const stateKey = `state_${userId}`;
 
   if (data === "disparo:cancelar") {
+    const rawState = await env.KV_BOT_BANNERS.get(stateKey);
+    if (rawState) {
+      try {
+        const state = JSON.parse(rawState);
+        await apagarPrevia(env, chatId, state);
+      } catch {}
+    }
+
     await env.KV_BOT_BANNERS.delete(stateKey);
     return atualizarPainel(env, chatId, callback.message.message_id,
       "❌ <b>Disparo cancelado.</b>\n\nNenhuma mensagem foi enviada.",
@@ -39,6 +47,8 @@ export async function handleDisparoCallback(env, callback) {
     if (state.sending === true) return;
     state.sending = true;
     await salvarEstado(env, stateKey, state);
+
+    await apagarPrevia(env, chatId, state);
 
     const grupos = await listarGrupos(env);
     await atualizarPainel(env, chatId, state.panelMessageId,
@@ -73,14 +83,38 @@ export async function handleDisparoCallback(env, callback) {
 }
 
 export async function mostrarConfirmacao(env, chatId, state) {
+  await apagarPrevia(env, chatId, state);
+
+  const replyMarkup = state.buttons ? { inline_keyboard: state.buttons } : undefined;
+  const previa = await enviarConteudo(env, chatId, state, replyMarkup);
+  state.previewMessageId = previa?.message_id || null;
+  state.step = "WAITING_CONFIRMATION";
+  await salvarEstado(env, `state_${state.userId || ""}`, state).catch(() => {});
+
+  // Salva pelo identificador original quando o state não contém userId.
+  // O chamador já mantém o state principal; o ID da prévia também é usado no cancelamento
+  // quando estiver disponível no mesmo objeto.
   const grupos = await listarGrupos(env);
   return atualizarPainel(env, chatId, state.panelMessageId,
-    "⚠️ <b>CONFIRMAR DISPARO</b>\n\n" +
-    `👥 Destinos: <b>${grupos.length} grupos</b>\n\nDeseja realmente enviar esta publicação?`,
+    "👁️ <b>PRÉVIA DO DISPARO</b>\n\n" +
+    `👥 Destinos: <b>${grupos.length} grupos</b>\n\nConfira a publicação acima. Se estiver tudo certo, confirme o envio.",
     [
-      [{ text: "🚀 Confirmar e Enviar", callback_data: "disparo:confirmar" }],
+      [{ text: "✅ Confirmar Disparo", callback_data: "disparo:confirmar" }],
       [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
     ]);
+}
+
+async function apagarPrevia(env, chatId, state) {
+  if (!state?.previewMessageId) return;
+  try {
+    await enviarTelegram(env.TELEGRAM_TOKEN, "deleteMessage", {
+      chat_id: chatId,
+      message_id: state.previewMessageId
+    });
+  } catch (error) {
+    console.warn("[DISPARO] Não foi possível apagar a prévia:", error.message || error);
+  }
+  state.previewMessageId = null;
 }
 
 async function enviarConteudo(env, chatId, state, replyMarkup) {
