@@ -5,6 +5,7 @@ import { comandoCancelar } from "../commands/cancelar.js";
 import { comandoPromo15 } from "../commands/promo15.js";
 import { adicionarGrupo } from "../services/groups.js";
 import { atualizarPainel } from "../services/panel.js";
+import { enviarTelegram } from "../services/telegram.js";
 import { mostrarConfirmacao } from "../callbacks/disparo.js";
 
 export async function handleMessage(env, message) {
@@ -46,6 +47,19 @@ export async function handleMessage(env, message) {
   }
 }
 
+async function apagarMensagemUsuario(env, message) {
+  if (!message?.chat?.id || !message?.message_id) return;
+
+  try {
+    await enviarTelegram(env.TELEGRAM_TOKEN, "deleteMessage", {
+      chat_id: message.chat.id,
+      message_id: message.message_id
+    });
+  } catch (error) {
+    console.warn("[LIMPEZA] Não foi possível apagar mensagem do usuário:", error.message || error);
+  }
+}
+
 async function processarMidia(env, message, state) {
   const userId = message.from.id.toString();
   const stateKey = `state_${userId}`;
@@ -69,6 +83,8 @@ async function processarMidia(env, message, state) {
   } else {
     return;
   }
+
+  await apagarMensagemUsuario(env, message);
 
   state.step = "WAITING_BUTTON_CHOICE";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
@@ -105,6 +121,8 @@ async function processarBotoes(env, message, state) {
     return;
   }
 
+  await apagarMensagemUsuario(env, message);
+
   state.step = "WAITING_CONFIRMATION";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
   return mostrarConfirmacao(env, message.chat.id, state);
@@ -123,6 +141,7 @@ async function processarGrupo(env, message, state) {
     );
   }
 
+  await apagarMensagemUsuario(env, message);
   await adicionarGrupo(env, id);
   await env.KV_BOT_BANNERS.delete(`state_${message.from.id}`);
 
