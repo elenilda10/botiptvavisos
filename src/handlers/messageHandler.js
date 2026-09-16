@@ -35,6 +35,9 @@ export async function handleMessage(env, message) {
     return;
   }
 
+  // Garante que a prévia seja persistida sempre no estado do admin correto.
+  state.userId = userId;
+
   switch (state.step) {
     case "WAITING_MEDIA":
       return processarMidia(env, message, state);
@@ -84,8 +87,10 @@ async function processarMidia(env, message, state) {
     return;
   }
 
+  // O conteúdo original do admin não fica solto no chat.
   await apagarMensagemUsuario(env, message);
 
+  state.userId = userId;
   state.step = "WAITING_BUTTON_CHOICE";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
 
@@ -93,7 +98,7 @@ async function processarMidia(env, message, state) {
     env,
     message.chat.id,
     state.panelMessageId,
-    "✅ <b>CONTEÚDO RECEBIDO</b>\n\nEscolha se deseja adicionar botões à publicação:",
+    "✅ <b>CONTEÚDO RECEBIDO</b>\n\nEscolha se deseja adicionar botões à publicação:\n\nAntes do disparo será exibida uma prévia para confirmação.",
     [
       [{ text: "🔘 Adicionar Botões", callback_data: "disparo:botoes" }],
       [{ text: "➡️ Continuar sem Botões", callback_data: "disparo:sem_botoes" }],
@@ -111,6 +116,8 @@ async function processarBotoes(env, message, state) {
   try {
     state.buttons = parseButtons(message.text);
   } catch (error) {
+    // Mesmo quando o formato está incorreto, remove a entrada do admin para manter o chat limpo.
+    await apagarMensagemUsuario(env, message);
     await atualizarPainel(
       env,
       message.chat.id,
@@ -123,6 +130,7 @@ async function processarBotoes(env, message, state) {
 
   await apagarMensagemUsuario(env, message);
 
+  state.userId = userId;
   state.step = "WAITING_CONFIRMATION";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
   return mostrarConfirmacao(env, message.chat.id, state);
