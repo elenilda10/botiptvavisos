@@ -11,9 +11,7 @@ import { mostrarConfirmacao } from "../callbacks/disparo.js";
 export async function handleMessage(env, message) {
   const userId = message.from?.id?.toString();
   const texto = message.caption || message.text || "";
-
   if (!userId) return;
-
   if (ADMINS_AUTORIZADOS.length > 0 && !ADMINS_AUTORIZADOS.includes(userId)) return;
 
   if (texto === "/start" || texto === "/painel") return comandoPainel(env, message);
@@ -26,12 +24,8 @@ export async function handleMessage(env, message) {
   if (!rawState) return;
 
   let state;
-  try {
-    state = JSON.parse(rawState);
-  } catch {
-    await env.KV_BOT_BANNERS.delete(stateKey);
-    return;
-  }
+  try { state = JSON.parse(rawState); }
+  catch { await env.KV_BOT_BANNERS.delete(stateKey); return; }
 
   state.userId = userId;
 
@@ -75,61 +69,54 @@ async function processarMidia(env, message, state) {
     state.mediaType = "text";
     state.fileId = null;
     state.caption = message.text;
-  } else {
-    return;
-  }
+  } else return;
 
   await apagarMensagemUsuario(env, message);
 
   state.userId = userId;
   state.buttons = null;
-  state.step = "WAITING_CONFIRMATION";
+  state.step = "WAITING_BUTTON_CHOICE";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
 
-  // Mostra imediatamente ao admin exatamente o conteúdo que será enviado.
-  return mostrarConfirmacao(env, message.chat.id, state);
+  return atualizarPainel(env, message.chat.id, state.panelMessageId,
+    "✅ <b>CONTEÚDO RECEBIDO</b>\n\nDeseja adicionar botões à publicação?",
+    [
+      [{ text: "🔘 Adicionar Botões", callback_data: "disparo:botoes" }],
+      [{ text: "➡️ Continuar sem Botões", callback_data: "disparo:sem_botoes" }],
+      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
+    ]);
 }
 
 async function processarBotoes(env, message, state) {
   const userId = message.from.id.toString();
   const stateKey = `state_${userId}`;
-
   if (!message.text) return;
 
-  try {
-    state.buttons = parseButtons(message.text);
-  } catch (error) {
+  try { state.buttons = parseButtons(message.text); }
+  catch (error) {
     await apagarMensagemUsuario(env, message);
-    await atualizarPainel(
-      env,
-      message.chat.id,
-      state.panelMessageId,
+    return atualizarPainel(env, message.chat.id, state.panelMessageId,
       `⚠️ <b>Formato de botão inválido.</b>\n\n${escapeHtml(error.message)}\n\nUse:\n<code>Comprar - https://site.com</code>`,
-      [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]
-    );
-    return;
+      [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
   }
 
   await apagarMensagemUsuario(env, message);
   state.userId = userId;
   state.step = "WAITING_CONFIRMATION";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
-  return mostrarConfirmacao(env, message.chat.id, state);
+  return mostrarConfirmacao(env, message.chat.id, state, true);
 }
 
 async function processarGrupo(env, message, state) {
   const id = String(message.text || "").trim();
-
   if (!/^-?\d+$/.test(id)) {
     return atualizarPainel(env, message.chat.id, state.panelMessageId,
       "⚠️ <b>ID inválido.</b>\n\nEnvie somente o ID numérico do grupo.\nExemplo: <code>-1001234567890</code>",
       [[{ text: "⬅️ Voltar", callback_data: "menu:grupos" }]]);
   }
-
   await apagarMensagemUsuario(env, message);
   await adicionarGrupo(env, id);
   await env.KV_BOT_BANNERS.delete(`state_${message.from.id}`);
-
   return atualizarPainel(env, message.chat.id, state.panelMessageId,
     `✅ <b>Grupo adicionado.</b>\n\nID: <code>${id}</code>`,
     [[{ text: "👥 Ver Grupos", callback_data: "menu:grupos" }], [{ text: "🏠 Painel", callback_data: "menu:inicio" }]]);
