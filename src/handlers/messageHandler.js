@@ -40,10 +40,7 @@ export async function handleMessage(env, message) {
 async function apagarMensagemUsuario(env, message) {
   if (!message?.chat?.id || !message?.message_id) return;
   try {
-    await enviarTelegram(env.TELEGRAM_TOKEN, "deleteMessage", {
-      chat_id: message.chat.id,
-      message_id: message.message_id
-    });
+    await enviarTelegram(env.TELEGRAM_TOKEN, "deleteMessage", { chat_id: message.chat.id, message_id: message.message_id });
   } catch (error) {
     console.warn("[LIMPEZA] Não foi possível apagar mensagem do usuário:", error.message || error);
   }
@@ -53,6 +50,7 @@ async function processarMidia(env, message, state) {
   const userId = message.from.id.toString();
   const stateKey = `state_${userId}`;
 
+  // Guardamos apenas os dados necessários para recriar o mesmo conteúdo na prévia e nos grupos.
   if (message.photo?.length) {
     state.mediaType = "photo";
     state.fileId = message.photo[message.photo.length - 1].file_id;
@@ -65,33 +63,102 @@ async function processarMidia(env, message, state) {
     state.mediaType = "animation";
     state.fileId = message.animation.file_id;
     state.caption = message.caption || "";
+  } else if (message.document) {
+    state.mediaType = "document";
+    state.fileId = message.document.file_id;
+    state.caption = message.caption || "";
+  } else if (message.audio) {
+    state.mediaType = "audio";
+    state.fileId = message.audio.file_id;
+    state.caption = message.caption || "";
+  } else if (message.voice) {
+    state.mediaType = "voice";
+    state.fileId = message.voice.file_id;
+    state.caption = message.caption || "";
+  } else if (message.video_note) {
+    state.mediaType = "video_note";
+    state.fileId = message.video_note.file_id;
+    state.caption = "";
+  } else if (message.sticker) {
+    state.mediaType = "sticker";
+    state.fileId = message.sticker.file_id;
+    state.caption = "";
+  } else if (message.poll) {
+    state.mediaType = "poll";
+    state.poll = {
+      question: message.poll.question,
+      options: message.poll.options.map(option => option.text),
+      is_anonymous: message.poll.is_anonymous,
+      type: message.poll.type,
+      allows_multiple_answers: message.poll.allows_multiple_answers,
+      correct_option_id: message.poll.correct_option_id,
+      explanation: message.poll.explanation || undefined
+    };
+    state.fileId = null;
+    state.caption = "";
+  } else if (message.location) {
+    state.mediaType = "location";
+    state.location = { latitude: message.location.latitude, longitude: message.location.longitude };
+    state.fileId = null;
+    state.caption = "";
+  } else if (message.venue) {
+    state.mediaType = "venue";
+    state.venue = {
+      latitude: message.venue.location.latitude,
+      longitude: message.venue.location.longitude,
+      title: message.venue.title,
+      address: message.venue.address
+    };
+    state.fileId = null;
+    state.caption = "";
+  } else if (message.contact) {
+    state.mediaType = "contact";
+    state.contact = {
+      phone_number: message.contact.phone_number,
+      first_name: message.contact.first_name,
+      last_name: message.contact.last_name || undefined,
+      vcard: message.contact.vcard || undefined
+    };
+    state.fileId = null;
+    state.caption = "";
+  } else if (message.dice) {
+    state.mediaType = "dice";
+    state.diceEmoji = message.dice.emoji;
+    state.fileId = null;
+    state.caption = "";
   } else if (message.text) {
     state.mediaType = "text";
     state.fileId = null;
     state.caption = message.text;
-  } else return;
+  } else {
+    return atualizarPainel(env, message.chat.id, state.panelMessageId,
+      "⚠️ <b>Tipo de conteúdo ainda não suportado.</b>\n\nTente enviar texto, mídia, arquivo, áudio, enquete, localização, contato ou outro conteúdo compatível.",
+      [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
+  }
 
   await apagarMensagemUsuario(env, message);
-
   state.userId = userId;
   state.buttons = null;
   state.step = "WAITING_BUTTON_CHOICE";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
 
+  // Tipos que não aceitam inline keyboard na própria publicação seguem direto para a prévia.
+  const semBotoes = ["poll", "sticker", "video_note", "location", "venue", "contact", "dice"];
+  if (semBotoes.includes(state.mediaType)) {
+    state.step = "WAITING_CONFIRMATION";
+    await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
+    return mostrarConfirmacao(env, message.chat.id, state);
+  }
+
   return atualizarPainel(env, message.chat.id, state.panelMessageId,
     "✅ <b>CONTEÚDO RECEBIDO</b>\n\nDeseja adicionar botões à publicação?",
-    [
-      [{ text: "🔘 Adicionar Botões", callback_data: "disparo:botoes" }],
-      [{ text: "➡️ Continuar sem Botões", callback_data: "disparo:sem_botoes" }],
-      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
-    ]);
+    [[{ text: "🔘 Adicionar Botões", callback_data: "disparo:botoes" }], [{ text: "➡️ Continuar sem Botões", callback_data: "disparo:sem_botoes" }], [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
 }
 
 async function processarBotoes(env, message, state) {
   const userId = message.from.id.toString();
   const stateKey = `state_${userId}`;
   if (!message.text) return;
-
   try { state.buttons = parseButtons(message.text); }
   catch (error) {
     await apagarMensagemUsuario(env, message);
@@ -99,7 +166,6 @@ async function processarBotoes(env, message, state) {
       `⚠️ <b>Formato de botão inválido.</b>\n\n${escapeHtml(error.message)}\n\nUse:\n<code>Comprar - https://site.com</code>`,
       [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
   }
-
   await apagarMensagemUsuario(env, message);
   state.userId = userId;
   state.step = "WAITING_CONFIRMATION";
@@ -109,11 +175,9 @@ async function processarBotoes(env, message, state) {
 
 async function processarGrupo(env, message, state) {
   const id = String(message.text || "").trim();
-  if (!/^-?\d+$/.test(id)) {
-    return atualizarPainel(env, message.chat.id, state.panelMessageId,
-      "⚠️ <b>ID inválido.</b>\n\nEnvie somente o ID numérico do grupo.\nExemplo: <code>-1001234567890</code>",
-      [[{ text: "⬅️ Voltar", callback_data: "menu:grupos" }]]);
-  }
+  if (!/^-?\d+$/.test(id)) return atualizarPainel(env, message.chat.id, state.panelMessageId,
+    "⚠️ <b>ID inválido.</b>\n\nEnvie somente o ID numérico do grupo.\nExemplo: <code>-1001234567890</code>",
+    [[{ text: "⬅️ Voltar", callback_data: "menu:grupos" }]]);
   await apagarMensagemUsuario(env, message);
   await adicionarGrupo(env, id);
   await env.KV_BOT_BANNERS.delete(`state_${message.from.id}`);
