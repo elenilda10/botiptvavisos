@@ -14,9 +14,7 @@ export async function handleMessage(env, message) {
 
   if (!userId) return;
 
-  if (ADMINS_AUTORIZADOS.length > 0 && !ADMINS_AUTORIZADOS.includes(userId)) {
-    return;
-  }
+  if (ADMINS_AUTORIZADOS.length > 0 && !ADMINS_AUTORIZADOS.includes(userId)) return;
 
   if (texto === "/start" || texto === "/painel") return comandoPainel(env, message);
   if (texto === "/send") return comandoSend(env, message);
@@ -35,24 +33,18 @@ export async function handleMessage(env, message) {
     return;
   }
 
-  // Garante que a prévia seja persistida sempre no estado do admin correto.
   state.userId = userId;
 
   switch (state.step) {
-    case "WAITING_MEDIA":
-      return processarMidia(env, message, state);
-    case "WAITING_BUTTONS_INPUT":
-      return processarBotoes(env, message, state);
-    case "WAITING_GROUP_ID":
-      return processarGrupo(env, message, state);
-    default:
-      return;
+    case "WAITING_MEDIA": return processarMidia(env, message, state);
+    case "WAITING_BUTTONS_INPUT": return processarBotoes(env, message, state);
+    case "WAITING_GROUP_ID": return processarGrupo(env, message, state);
+    default: return;
   }
 }
 
 async function apagarMensagemUsuario(env, message) {
   if (!message?.chat?.id || !message?.message_id) return;
-
   try {
     await enviarTelegram(env.TELEGRAM_TOKEN, "deleteMessage", {
       chat_id: message.chat.id,
@@ -87,24 +79,15 @@ async function processarMidia(env, message, state) {
     return;
   }
 
-  // O conteúdo original do admin não fica solto no chat.
   await apagarMensagemUsuario(env, message);
 
   state.userId = userId;
-  state.step = "WAITING_BUTTON_CHOICE";
+  state.buttons = null;
+  state.step = "WAITING_CONFIRMATION";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
 
-  await atualizarPainel(
-    env,
-    message.chat.id,
-    state.panelMessageId,
-    "✅ <b>CONTEÚDO RECEBIDO</b>\n\nEscolha se deseja adicionar botões à publicação:\n\nAntes do disparo será exibida uma prévia para confirmação.",
-    [
-      [{ text: "🔘 Adicionar Botões", callback_data: "disparo:botoes" }],
-      [{ text: "➡️ Continuar sem Botões", callback_data: "disparo:sem_botoes" }],
-      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
-    ]
-  );
+  // Mostra imediatamente ao admin exatamente o conteúdo que será enviado.
+  return mostrarConfirmacao(env, message.chat.id, state);
 }
 
 async function processarBotoes(env, message, state) {
@@ -116,7 +99,6 @@ async function processarBotoes(env, message, state) {
   try {
     state.buttons = parseButtons(message.text);
   } catch (error) {
-    // Mesmo quando o formato está incorreto, remove a entrada do admin para manter o chat limpo.
     await apagarMensagemUsuario(env, message);
     await atualizarPainel(
       env,
@@ -129,7 +111,6 @@ async function processarBotoes(env, message, state) {
   }
 
   await apagarMensagemUsuario(env, message);
-
   state.userId = userId;
   state.step = "WAITING_CONFIRMATION";
   await env.KV_BOT_BANNERS.put(stateKey, JSON.stringify(state), { expirationTtl: 3600 });
@@ -140,42 +121,30 @@ async function processarGrupo(env, message, state) {
   const id = String(message.text || "").trim();
 
   if (!/^-?\d+$/.test(id)) {
-    return atualizarPainel(
-      env,
-      message.chat.id,
-      state.panelMessageId,
+    return atualizarPainel(env, message.chat.id, state.panelMessageId,
       "⚠️ <b>ID inválido.</b>\n\nEnvie somente o ID numérico do grupo.\nExemplo: <code>-1001234567890</code>",
-      [[{ text: "⬅️ Voltar", callback_data: "menu:grupos" }]]
-    );
+      [[{ text: "⬅️ Voltar", callback_data: "menu:grupos" }]]);
   }
 
   await apagarMensagemUsuario(env, message);
   await adicionarGrupo(env, id);
   await env.KV_BOT_BANNERS.delete(`state_${message.from.id}`);
 
-  return atualizarPainel(
-    env,
-    message.chat.id,
-    state.panelMessageId,
+  return atualizarPainel(env, message.chat.id, state.panelMessageId,
     `✅ <b>Grupo adicionado.</b>\n\nID: <code>${id}</code>`,
-    [[{ text: "👥 Ver Grupos", callback_data: "menu:grupos" }], [{ text: "🏠 Painel", callback_data: "menu:inicio" }]]
-  );
+    [[{ text: "👥 Ver Grupos", callback_data: "menu:grupos" }], [{ text: "🏠 Painel", callback_data: "menu:inicio" }]]);
 }
 
 function parseButtons(text) {
   return text.split("\n").map(line => {
     const parts = line.split("|").map(item => item.trim()).filter(Boolean);
     if (!parts.length) throw new Error("Nenhum botão informado.");
-
     return parts.map(item => {
       const separator = item.indexOf(" - ");
       if (separator < 1) throw new Error(`Linha inválida: ${item}`);
-
       const label = item.slice(0, separator).trim();
       const url = item.slice(separator + 3).trim();
-      if (!/^https?:\/\//i.test(url) && !/^tg:\/\//i.test(url)) {
-        throw new Error(`URL inválida no botão ${label}.`);
-      }
+      if (!/^https?:\/\//i.test(url) && !/^tg:\/\//i.test(url)) throw new Error(`URL inválida no botão ${label}.`);
       return { text: label, url };
     });
   });
