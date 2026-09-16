@@ -16,7 +16,6 @@ export async function handleDisparoCallback(env, callback) {
         await apagarPrevia(env, chatId, state);
       } catch {}
     }
-
     await env.KV_BOT_BANNERS.delete(stateKey);
     return atualizarPainel(env, chatId, callback.message.message_id,
       "❌ <b>Disparo cancelado.</b>\n\nNenhuma mensagem foi enviada.",
@@ -32,15 +31,8 @@ export async function handleDisparoCallback(env, callback) {
     state.step = "WAITING_BUTTONS_INPUT";
     await salvarEstado(env, stateKey, state);
     return atualizarPainel(env, chatId, state.panelMessageId,
-      "🔘 <b>ADICIONAR BOTÕES</b>\n\nEnvie os botões neste formato:\n\n<code>Comprar - https://site.com</code>\n\nDois lado a lado:\n<code>Comprar - https://site.com | Suporte - https://t.me/suporte</code>\n\nOutra linha = quebra de linha.",
+      "🔘 <b>ADICIONAR BOTÕES</b>\n\nEnvie os botões neste formato:\n\n<code>Comprar - https://site.com</code>\n\nDois lado a lado:\n<code>Comprar - https://site.com | Suporte - https://t.me/suporte</code>",
       [[{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]]);
-  }
-
-  if (data === "disparo:sem_botoes") {
-    state.buttons = null;
-    state.step = "WAITING_CONFIRMATION";
-    await salvarEstado(env, stateKey, state);
-    return mostrarConfirmacao(env, chatId, state);
   }
 
   if (data === "disparo:confirmar") {
@@ -48,6 +40,7 @@ export async function handleDisparoCallback(env, callback) {
     state.sending = true;
     await salvarEstado(env, stateKey, state);
 
+    // A prévia é apagada antes do disparo real.
     await apagarPrevia(env, chatId, state);
 
     const grupos = await listarGrupos(env);
@@ -75,33 +68,37 @@ export async function handleDisparoCallback(env, callback) {
     return atualizarPainel(env, chatId, state.panelMessageId,
       "✅ <b>DISPARO FINALIZADO</b>\n\n" +
       `📤 Enviados: <b>${sucessos}</b>\n❌ Erros: <b>${erros}</b>\n👥 Total: <b>${grupos.length}</b>`,
-      [
-        [{ text: "📢 Novo Disparo", callback_data: "menu:disparo" }],
-        [{ text: "🏠 Painel", callback_data: "menu:inicio" }]
-      ]);
+      [[{ text: "📢 Novo Disparo", callback_data: "menu:disparo" }], [{ text: "🏠 Painel", callback_data: "menu:inicio" }]]);
   }
 }
 
 export async function mostrarConfirmacao(env, chatId, state) {
+  state.userId = String(state.userId || "");
+  if (!state.userId) throw new Error("Não foi possível identificar o admin para salvar a prévia.");
+
   await apagarPrevia(env, chatId, state);
 
-  const replyMarkup = state.buttons ? { inline_keyboard: state.buttons } : undefined;
-  const previa = await enviarConteudo(env, chatId, state, replyMarkup);
+  // Os botões de confirmação ficam NA PRÓPRIA PRÉVIA. Assim ela fica visível
+  // exatamente como uma publicação normal, mas não pode disparar sem confirmação.
+  const confirmacao = {
+    inline_keyboard: [
+      [{ text: "✅ Confirmar Disparo", callback_data: "disparo:confirmar" }],
+      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
+    ]
+  };
+
+  const previa = await enviarConteudo(env, chatId, state, confirmacao);
   state.previewMessageId = previa?.message_id || null;
   state.step = "WAITING_CONFIRMATION";
-  await salvarEstado(env, `state_${state.userId || ""}`, state).catch(() => {});
 
-  // Salva pelo identificador original quando o state não contém userId.
-  // O chamador já mantém o state principal; o ID da prévia também é usado no cancelamento
-  // quando estiver disponível no mesmo objeto.
+  // Persistência obrigatória do ID da prévia no estado correto.
+  await salvarEstado(env, `state_${state.userId}`, state);
+
   const grupos = await listarGrupos(env);
   return atualizarPainel(env, chatId, state.panelMessageId,
     "👁️ <b>PRÉVIA DO DISPARO</b>\n\n" +
-    `👥 Destinos: <b>${grupos.length} grupos</b>\n\nConfira a publicação acima. Se estiver tudo certo, confirme o envio.",
-    [
-      [{ text: "✅ Confirmar Disparo", callback_data: "disparo:confirmar" }],
-      [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }]
-    ]);
+    `👥 Destinos: <b>${grupos.length} grupos</b>\n\nA publicação de prévia foi enviada abaixo. Confira e use os botões nela para confirmar ou cancelar.",
+    null);
 }
 
 async function apagarPrevia(env, chatId, state) {
