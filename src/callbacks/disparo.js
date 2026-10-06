@@ -354,7 +354,10 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
 
       if (item.caption) {
         value.caption = item.caption;
-        value.parse_mode = "HTML";
+        if (item.caption_entities) {
+          value.caption_entities =
+            item.caption_entities;
+        }
       }
 
       return value;
@@ -400,7 +403,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           photo: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -413,7 +417,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           video: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -426,7 +431,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           animation: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -439,7 +445,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           document: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -452,7 +459,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           audio: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -465,7 +473,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
           ...base,
           voice: state.fileId,
           caption: state.caption || undefined,
-          parse_mode: state.caption ? "HTML" : undefined,
+          caption_entities:
+            state.captionEntities || undefined,
           reply_markup: replyMarkup
         }
       );
@@ -575,7 +584,8 @@ async function enviarConteudo(env, chatId, state, replyMarkup) {
         {
           ...base,
           text: state.caption || "",
-          parse_mode: "HTML",
+          entities:
+            state.textEntities || undefined,
           reply_markup: replyMarkup
         }
       );
