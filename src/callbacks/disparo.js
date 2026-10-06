@@ -21,7 +21,8 @@ export async function handleDisparoCallback(env, callback) {
     return atualizarPainel(
       env,
       chatId,
-      callback.message.message_id,
+      state?.panelMessageId ||
+        callback.message.message_id,
       "❌ <b>Disparo cancelado.</b>\n\nNenhuma mensagem foi enviada.",
       [[{ text: "🏠 Voltar ao Painel", callback_data: "menu:inicio" }]]
     );
