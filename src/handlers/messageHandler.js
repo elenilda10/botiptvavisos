@@ -294,9 +294,26 @@ async function processarLegenda(
 
   await apagarMensagemUsuario(env, message);
 
-  state.caption = message.text;
-  state.captionEntities =
-    message.entities || undefined;
+  if (state.mediaType === "album") {
+    state.album = (state.album || []).map(
+      (item, index) => ({
+        ...item,
+        caption:
+          index === 0
+            ? message.text
+            : "",
+        caption_entities:
+          index === 0
+            ? (message.entities || undefined)
+            : undefined
+      })
+    );
+  } else {
+    state.caption = message.text;
+    state.captionEntities =
+      message.entities || undefined;
+  }
+
   state.userId = userId;
 
   await salvarEstado(
