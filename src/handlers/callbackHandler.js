@@ -15,55 +15,170 @@ export async function handleCallback(env, callback) {
 
   if (!userId || !chatId || !data) return;
 
-  if (ADMINS_AUTORIZADOS.length > 0 && !ADMINS_AUTORIZADOS.includes(userId)) {
+  if (
+    ADMINS_AUTORIZADOS.length > 0 &&
+    !ADMINS_AUTORIZADOS.includes(userId)
+  ) {
     try {
-      await enviarTelegram(env.TELEGRAM_TOKEN, "answerCallbackQuery", {
-        callback_query_id: callback.id,
-        text: "⛔ Você não possui permissão para usar este painel.",
-        show_alert: true
-      });
+      await enviarTelegram(
+        env.TELEGRAM_TOKEN,
+        "answerCallbackQuery",
+        {
+          callback_query_id: callback.id,
+          text:
+            "⛔ Você não possui permissão para usar este painel.",
+          show_alert: true
+        }
+      );
     } catch (error) {
-      console.error("[CALLBACK] Erro ao avisar usuário não autorizado:", error);
+      console.error(
+        "[CALLBACK] Erro ao avisar usuário não autorizado:",
+        error
+      );
     }
     return;
   }
 
-  try {
-    await enviarTelegram(env.TELEGRAM_TOKEN, "answerCallbackQuery", {
-      callback_query_id: callback.id
-    });
-  } catch (error) {
-    console.warn("[CALLBACK] Não foi possível responder callback:", error);
+  const sendAtivo =
+    await possuiSendAtivo(env, userId);
+
+  if (
+    sendAtivo &&
+    !data.startsWith("disparo:")
+  ) {
+    try {
+      await enviarTelegram(
+        env.TELEGRAM_TOKEN,
+        "answerCallbackQuery",
+        {
+          callback_query_id: callback.id,
+          text:
+            "🔒 Finalize ou cancele o /send antes de usar outras opções.",
+          show_alert: true
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "[CALLBACK] Falha ao bloquear interface durante /send:",
+        error
+      );
+    }
+
+    return;
   }
 
   try {
-    if (data.startsWith("menu:")) return await handleMenuCallback(env, callback);
-    if (data.startsWith("disparo:")) return await handleDisparoCallback(env, callback);
-    if (data.startsWith("grupo:")) return await handleGruposCallback(env, callback);
-    if (data.startsWith("banner:")) return await handleBannersCallback(env, callback);
-    if (data.startsWith("historico:")) return await handleHistoricoCallback(env, callback);
-    if (data.startsWith("config:")) return await handleConfigCallback(env, callback);
+    await enviarTelegram(
+      env.TELEGRAM_TOKEN,
+      "answerCallbackQuery",
+      {
+        callback_query_id: callback.id
+      }
+    );
+  } catch (error) {
+    console.warn(
+      "[CALLBACK] Não foi possível responder callback:",
+      error
+    );
+  }
 
-    console.warn(`[CALLBACK] Callback desconhecido recebido: ${data}`);
+  try {
+    if (data.startsWith("menu:")) {
+      return await handleMenuCallback(
+        env,
+        callback
+      );
+    }
+
+    if (data.startsWith("disparo:")) {
+      return await handleDisparoCallback(
+        env,
+        callback
+      );
+    }
+
+    if (data.startsWith("grupo:")) {
+      return await handleGruposCallback(
+        env,
+        callback
+      );
+    }
+
+    if (data.startsWith("banner:")) {
+      return await handleBannersCallback(
+        env,
+        callback
+      );
+    }
+
+    if (data.startsWith("historico:")) {
+      return await handleHistoricoCallback(
+        env,
+        callback
+      );
+    }
+
+    if (data.startsWith("config:")) {
+      return await handleConfigCallback(
+        env,
+        callback
+      );
+    }
+
+    console.warn(
+      `[CALLBACK] Callback desconhecido recebido: ${data}`
+    );
 
     return editarTela(
       env.TELEGRAM_TOKEN,
       callback,
       "⚠️ <b>Opção não reconhecida.</b>\n\nVolte ao painel e tente novamente.",
-      [[{ text: "🏠 Painel", callback_data: "menu:inicio" }]]
+      [[
+        {
+          text: "🏠 Painel",
+          callback_data: "menu:inicio"
+        }
+      ]]
     );
   } catch (error) {
-    console.error(`[CALLBACK] Erro ao processar "${data}":`, error);
+    console.error(
+      `[CALLBACK] Erro ao processar "${data}":`,
+      error
+    );
 
     try {
       return await editarTela(
         env.TELEGRAM_TOKEN,
         callback,
         "❌ <b>Ocorreu um erro ao processar essa ação.</b>\n\nTente novamente ou volte ao painel principal.",
-        [[{ text: "🏠 Painel", callback_data: "menu:inicio" }]]
+        [[
+          {
+            text: "🏠 Painel",
+            callback_data: "menu:inicio"
+          }
+        ]]
       );
     } catch (telegramError) {
-      console.error("[CALLBACK] Erro ao atualizar mensagem de erro:", telegramError);
+      console.error(
+        "[CALLBACK] Erro ao atualizar mensagem de erro:",
+        telegramError
+      );
     }
+  }
+}
+
+async function possuiSendAtivo(env, userId) {
+  const raw =
+    await env.KV_BOT_BANNERS.get(
+      `state_${userId}`
+    );
+
+  if (!raw) return false;
+
+  try {
+    const state = JSON.parse(raw);
+    return state?.flow === "send";
+  } catch {
+    return false;
   }
 }
