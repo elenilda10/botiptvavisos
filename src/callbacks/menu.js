@@ -1,4 +1,5 @@
 import { comandoPainel } from "../commands/painel.js";
+import { iniciarDisparo } from "../commands/send.js";
 import { editarTela } from "../services/telegram.js";
 import { mostrarMenuGrupos } from "./grupos.js";
 import { mostrarMenuBanners } from "./banners.js";
@@ -12,25 +13,11 @@ export async function handleMenuCallback(env, callback) {
   if (data === "menu:inicio") return comandoPainel(env, callback.message);
 
   if (data === "menu:disparo") {
-    await env.KV_BOT_BANNERS.put(
-      `state_${userId}`,
-      JSON.stringify({
-        step: "WAITING_MEDIA",
-        userId,
-        panelMessageId: callback.message.message_id
-      }),
-      { expirationTtl: 3600 }
-    );
-
-    return editarTela(
-      env.TELEGRAM_TOKEN,
-      callback,
-      "📢 <b>NOVO DISPARO</b>\n\n━━━━━━━━━━━━━━━━━━\n📸 <b>Envie o conteúdo</b>\n━━━━━━━━━━━━━━━━━━\n\nVocê pode enviar:\n\n📝 Texto\n🖼 Foto\n🎥 Vídeo\n🎞 GIF / Animação\n\nA mensagem enviada por você será apagada e, antes de qualquer disparo, será exibida uma prévia para confirmação.",
-      [
-        [{ text: "❌ Cancelar", callback_data: "disparo:cancelar" }],
-        [{ text: "⬅️ Painel", callback_data: "menu:inicio" }]
-      ]
-    );
+    return iniciarDisparo(env, {
+      chatId: callback.message.chat.id,
+      userId,
+      panelMessageId: callback.message.message_id
+    });
   }
 
   if (data === "menu:grupos") return mostrarMenuGrupos(env, callback);
